@@ -1,0 +1,4 @@
+[submodule "anbennar"]
+	path = anbennar
+	url = https://bitbucket.org/JayBean/anbennar-eu4-fork-public-build
+	branch = steam

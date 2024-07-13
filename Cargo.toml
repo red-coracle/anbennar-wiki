@@ -1,0 +1,18 @@
+[package]
+name = "anbennar-wiki"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+jomini = { version = "0.26", features = ["json"] }
+serde = { version = "1", features = ["derive"] }
+log = "0.4.20"
+reqwest = { version = "0.12.4", features = ["blocking", "json", "cookies", "multipart"] }
+phf = { version = "0.11.2", features = ["macros"] }
+deunicode = "1.4.4"
+regex = "1.10"
+serde_json = "1.0.109"
+
+[profile.release]
+lto = true
+codegen-units = 1
