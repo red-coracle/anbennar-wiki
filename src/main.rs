@@ -8,6 +8,7 @@ use std::time::Instant;
 use deunicode::deunicode;
 use jomini::{Scalar, TextTape};
 use reqwest::blocking::Client;
+use reqwest::header::{HeaderMap, HeaderValue, USER_AGENT};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
@@ -91,6 +92,8 @@ struct MediaWikiClient {
 
 impl MediaWikiClient {
     pub fn new(url: String, botname: String, botpass: String) -> MediaWikiClient {
+        let mut default_headers = HeaderMap::new();
+        default_headers.insert(USER_AGENT, HeaderValue::from_static("anbennar-wiki-bot/1.0"));
         MediaWikiClient{
             url,
             botname,
@@ -98,7 +101,7 @@ impl MediaWikiClient {
             csrf_token: None,
             csrf_time: Instant::now(),
             csrf_counter: 0,
-            httpclient: Client::builder().cookie_store(true).build().unwrap(),
+            httpclient: Client::builder().cookie_store(true).default_headers(default_headers).build().unwrap(),
         }
     }
 
