@@ -21,7 +21,7 @@ use crate::map::{parse_continents, parse_map};
 use crate::missions::tags_with_missions;
 use crate::modifiers::get_modifier;
 use crate::modifiers::ModifierNormal::{Negative, Positive};
-use crate::utils::htmlify;
+use crate::utils::{get_git_changed_files, htmlify};
 
 mod localisation;
 mod ideas;
@@ -101,7 +101,10 @@ impl MediaWikiClient {
             csrf_token: None,
             csrf_time: Instant::now(),
             csrf_counter: 0,
-            httpclient: Client::builder().cookie_store(true).default_headers(default_headers).build().unwrap(),
+            httpclient: Client::builder()
+                .cookie_store(true)
+                .default_headers(default_headers)
+                .build().unwrap(),
         }
     }
 
@@ -248,21 +251,19 @@ fn idea_pages(client: &mut MediaWikiClient) {
 }
 
 fn upload_flags(client: &mut MediaWikiClient) {
-    // TODO: only upload changed flags
-    let mut countries = countries::parse_countries();
-    countries.sort_by_key(|k| k.tag.clone());
-    for country in countries {
-        let normal_name = deunicode(country.name.as_str());
-        if normal_name == "" {
-            continue;
-        }
-        let filename = format!("./anbennar/gfx/flags/{tag}.tga", tag=country.tag);
-        let flag_file = Path::new(&filename);
-        if flag_file.exists() {
-            if let Some(converted) = ImageMagick::default().convert_to_png(flag_file) {
-                client.upload(format!("{}_Flag.png", country.tag), &converted);
-                let _ = fs::remove_file(converted);
-            }
+    let prior_commit = env::var("PRIOR_ANB_COMMIT").unwrap();
+    let changed = get_git_changed_files(
+        String::from("anbennar"),
+        String::from("gfx/flags"),
+        format!("{prior_commit}..HEAD")
+    );
+    for flag_path in changed {
+        let file_path = Path::new("./anbennar").join(&flag_path);
+        let tag = file_path.file_stem().unwrap();
+        let file = file_path.as_path();
+        if let Some(converted) = ImageMagick::default().convert_to_png(file) {
+            client.upload(format!("{}_Flag.png", tag.to_str().unwrap()), &converted);
+            let _ = fs::remove_file(converted);
         }
     }
 }

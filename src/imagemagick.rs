@@ -22,8 +22,8 @@ impl ImageMagick {
             .output();
         if let Ok(output) = process {
             if !output.status.success() {
-                println!("{:?}", String::from_utf8_lossy(&output.stderr));
-                return String::from_utf8_lossy(&output.stderr).to_string();
+                println!("{:?}", String::from_utf8_lossy(&output.stdout));
+                return String::from_utf8_lossy(&output.stdout).to_string();
             }
             return String::from("")
         }
