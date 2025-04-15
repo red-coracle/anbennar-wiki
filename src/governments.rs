@@ -144,7 +144,7 @@ pub fn parse_government_reform_file(data: &[u8], localisations: Option<&HashMap<
                                 let value = value.read_object();
                                 if value.is_ok() {
                                     for (key, _op, value) in value.unwrap().fields() {
-                                        let modifier = get_modifier(&key.read_string());
+                                        let modifier = get_modifier(&key.read_string(), );
                                         if modifier.is_some() {
                                             reform.modifiers.insert(key.read_string(), value.read_scalar().unwrap().as_bytes().to_vec());
                                         }

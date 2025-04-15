@@ -1,10 +1,12 @@
 use std::borrow::Borrow;
 use std::collections::HashMap;
 use std::fs;
-
-use regex::Regex;
-
+use std::path::PathBuf;
+use regex::{Captures, Regex};
+use once_cell::sync::Lazy;
+use phf::phf_map;
 use crate::countries::Country;
+use crate::utils::gather;
 
 #[derive(Default)]
 pub struct Localisations {
@@ -46,7 +48,7 @@ fn parse_localisation_file(data: &str) -> HashMap<String, String> {
                             // eprintln!("mismatched quote count in {:?}", x)
                         // }
 
-                        localisations.insert(x.to_string(), val.to_string());
+                        localisations.insert(x.to_string(), preprocess(&val.to_string()));
                     } else {
                         localisations.insert(x.to_string(), "".to_string());
                     }
@@ -122,64 +124,93 @@ pub fn parse_religion_localisations() -> HashMap<String, String> {
 
 pub fn parse_all_localisations() -> HashMap<String, String> {
     let mut localisations: HashMap<String, String> = HashMap::new();
-    let paths = fs::read_dir("./anbennar/localisation").expect("Missing localisation directory");
+    let mut files: Vec<PathBuf> = vec![];
+    let paths = vec![
+        "./anbennar/localisation",
+        "./basegame/localisation"
+    ];
+
     for path in paths {
-        match path {
-            Ok(file) => {
-                let file = fs::read(file.path()).expect("error reading file");
-                let parsed = parse_localisation_file(std::str::from_utf8(file.as_slice()).unwrap());
-                localisations.extend(parsed);
+        gather(path.to_string(), &mut files);
+    }
+
+    for file in files {
+        if file.exists() {
+            // println!("{:?}", file.as_path().to_str());
+            let filename = file.as_path().to_str().unwrap();
+            // assert!(!.ends_with("spanish.yml"));
+            if filename.ends_with("spanish.yml") ||
+                filename.ends_with("german.yml") ||
+                filename.ends_with("french.yml") {
+                // println!("DELETE");
+                continue
             }
-            _ => {}
+            let file = fs::read(file.as_path()).expect("error reading file");
+            let parsed = parse_localisation_file(std::str::from_utf8(file.as_slice()).unwrap());
+            localisations.extend(parsed);
         }
     }
     localisations
 }
 
+pub fn preprocess(input: &String) -> String {
+    let mut processed = colourise(input);
+    processed = iconise(&processed);
+    processed
+}
+
+pub fn iconise(input: &String) -> String {
+    input.to_string()
+}
+
+pub const COLORS: phf::Map<&'static str, &'static str> = phf_map!{
+    "W" => "white",
+    "B" => "blue",
+    "G" => "green",
+    "R" => "red",
+    "b" => "black",
+    "g" => "grey",
+    "Y" => "yellow",
+    "M" => "marine",
+    "T" => "teal",
+    "O" => "orange",
+    "l" => "lime",
+    "J" => "jade",
+    "P" => "purple",
+    "V" => "violet",
+    "o" => "darkorange", // not confirmed
+    "H" => "black", // not confirmed
+    "D" => "black", // not confirmed
+    "S" => "black", // not confirmed
+    "E" => "black", // not confirmed
+    "C" => "darkmagenta", // not confirmed
+    "p" => "pink", // not confirmed
+    "y" => "gold", // ! wrong but different to yellow not confirmed
+    "Z" => "black", // not confirmed
+    "v" => "black", // not confirmed
+    "m" => "lightgreen", // not confirmed
+    "c" => "black", // not confirmed
+    "r" => "black", // not confirmed
+    "w" => "black", // not confirmed
+    "d" => "black", // not confirmed
+    "L" => "black", // not confirmed
+    "F" => "black", // not confirmed
+    "s" => "black", // not confirmed
+    "A" => "black", // not confirmed
+    "!" => "black", // error in files, capture group §!§OPrimer§!
+    "+" => "black", // error in files, capture group $+15%§!
+    "1" => "black", // error in files, capture group §!10§!
+};
 pub fn colourise(input: &String) -> String {
-    // TODO: there's probably a way to do this all in one?
-    let white = Regex::new(r"§W(.+?)§!").unwrap();
-    let input = white.replace_all(input, "<span class=\"white\">$1</span>");
-
-    let blue = Regex::new(r"§B(.+?)§!").unwrap();
-    let input = blue.replace_all(input.borrow(), "<span class=\"blue\">$1</span>");
-
-    let green = Regex::new(r"§G(.+?)§!").unwrap();
-    let input = green.replace_all(input.borrow(), "<span class=\"green\">$1</span>");
-
-    let red = Regex::new(r"§R(.+?)§!").unwrap();
-    let input = red.replace_all(input.borrow(), "<span class=\"red\">$1</span>");
-
-    let black = Regex::new(r"§b(.+?)§!").unwrap();
-    let input = black.replace_all(input.borrow(), "<span class=\"black\">$1</span>");
-
-    let grey = Regex::new(r"§g(.+?)§!").unwrap();
-    let input = grey.replace_all(input.borrow(), "<span class=\"grey\">$1</span>");
-
-    let yellow = Regex::new(r"§Y(.+?)§!").unwrap();
-    let input = yellow.replace_all(input.borrow(), "<span class=\"yellow\">$1</span>");
-
-    let marine = Regex::new(r"§M(.+?)§!").unwrap();
-    let input = marine.replace_all(input.borrow(), "<span class=\"marine\">$1</span>");
-
-    let teal = Regex::new(r"§T(.+?)§!").unwrap();
-    let input = teal.replace_all(input.borrow(), "<span class=\"teal\">$1</span>");
-
-    let orange = Regex::new(r"§O(.+?)§!").unwrap();
-    let input = orange.replace_all(input.borrow(), "<span class=\"orange\">$1</span>");
-
-    let lime = Regex::new(r"§l(.+?)§!").unwrap();
-    let input = lime.replace_all(input.borrow(), "<span class=\"lime\">$1</span>");
-
-    let jade = Regex::new(r"§J(.+?)§!").unwrap();
-    let input = jade.replace_all(input.borrow(), "<span class=\"jade\">$1</span>");
-
-    let purple = Regex::new(r"§P(.+?)§!").unwrap();
-    let input = purple.replace_all(input.borrow(), "<span class=\"purple\">$1</span>");
-
-    let violet = Regex::new(r"§V(.+?)§!").unwrap();
-    let input = violet.replace_all(input.borrow(), "<span class=\"violet\">$1</span>");
-
+    static RE: Lazy<Regex> = Lazy::new(|| Regex::new(r"§(.)(.+?)§!").unwrap());
+    let input = RE.replace_all(input.as_ref(), |m: &Captures| {
+        // println!("{:?}", m);
+        format!(
+            "<span class=\"{}\">{}</span>", // <span style="color:yellow">
+            COLORS.get(&m[1]).unwrap(),//.unwrap_or(&"black"),
+            &m[2]
+        )
+    });
     input.to_string()
 }
 

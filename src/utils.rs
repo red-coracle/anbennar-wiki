@@ -1,4 +1,4 @@
-use std::collections::BTreeSet;
+use std::collections::{BTreeSet, HashMap};
 use std::fs;
 use std::path::PathBuf;
 
@@ -114,6 +114,47 @@ pub fn translate(key: &str) -> &str {
     }
 }
 
+pub fn gather(path: String, files: &mut Vec<PathBuf>) -> Vec<PathBuf> {
+    let directory = fs::read_dir(path);
+    if let Ok(directory) = directory {
+        for entry in directory {
+            match entry {
+                Ok(entry) => {
+                    if entry.path().is_dir() {
+                        gather(entry.path().to_str().unwrap().to_string(), files);
+                    } else {
+                        files.push(entry.path())
+                    }
+                }
+                Err(_) => {}
+            }
+        }
+    }
+    files.to_vec()
+}
+
+pub fn parse_all_icons() -> HashMap<String, PathBuf> {
+    let mut icon_paths: HashMap<String, PathBuf> = HashMap::new();
+    let mut files: Vec<PathBuf> = vec![];
+    let paths = vec![
+        "./anbennar/gfx",
+        "./basegame/gfx"
+    ];
+
+    for path in paths {
+        gather(path.to_string(), &mut files);
+    }
+
+    for file in files {
+        if file.exists() {
+            let id = file.as_path().file_stem().unwrap().to_str().unwrap().to_string();
+            icon_paths.insert(id, file);
+        }
+    }
+
+    icon_paths
+}
+
 #[cfg(test)]
 mod tests {
     use crate::governments::parse_government_reforms;
@@ -142,5 +183,13 @@ mod tests {
         );
         assert_eq!(files.len(), 1);
         assert_eq!(files.first().unwrap(), &"gfx/interface/great_projects/great_project_teal_keep.dds".to_string())
+    }
+
+    #[test]
+    pub fn test_all_icons() {
+        let map = parse_all_icons();
+        for e in map.keys() {
+            println!("{} {:?}", e, map.get(e).unwrap().to_str())
+        }
     }
 }

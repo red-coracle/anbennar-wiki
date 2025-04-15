@@ -1,27 +1,30 @@
-use std::{env, fs};
+use std::{env, fs, thread, time};
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::fmt::Debug;
 use std::path::{Path, PathBuf};
 use std::string::String;
 use std::time::Instant;
-
+use convert_case::{Case, Casing};
 use deunicode::deunicode;
 use jomini::{Scalar, TextTape};
+use log::__private_api::loc;
 use reqwest::blocking::Client;
 use reqwest::header::{HeaderMap, HeaderValue, USER_AGENT};
 use serde::{Deserialize, Serialize};
+use serde::de::Unexpected::Str;
 use serde_json::Value;
-
+use crate::bundled_modifiers::parse_bundled_modifiers;
 use crate::countries::{Country, formable_tags};
 use crate::governments::{parse_government_reforms, parse_governments};
 use crate::ideas::parse_ideas;
 use crate::imagemagick::ImageMagick;
 use crate::localisation::{parse_all_localisations, parse_idea_localisations};
 use crate::map::{parse_continents, parse_map};
-use crate::missions::tags_with_missions;
-use crate::modifiers::get_modifier;
+use crate::missions::{parse_missions, tags_with_missions};
+use crate::modifiers::{get_modifier, MODIFIERS};
 use crate::modifiers::ModifierNormal::{Negative, Positive};
-use crate::utils::{get_git_changed_files, htmlify};
+use crate::religions::{parse_religious_groups, Religion};
+use crate::utils::{get_git_changed_files, htmlify, gather, parse_all_icons};
 
 mod localisation;
 mod ideas;
@@ -31,11 +34,13 @@ mod missions;
 mod events;
 mod imagemagick;
 mod governments;
+mod religions;
 mod utils;
 mod map;
 mod greatprojects;
 mod graphics;
-
+mod bundled_modifiers;
+mod decisions;
 
 fn main() {
     let args: Vec<String> = env::args().collect();
@@ -46,6 +51,14 @@ fn main() {
     let mut mwclient = MediaWikiClient::new(api_url, bot_name, bot_pass);
     mwclient.login();
 
+    preprocess_modifiers();
+
+    if args.contains(&String::from("--bundled")) {
+        run_bundled_modifiers(&mut mwclient);
+    }
+    if args.contains(&String::from("--modifiers")) {
+        run_modifiers(&mut mwclient);
+    }
     if args.contains(&String::from("--ideas")) {
         idea_pages(&mut mwclient);
     }
@@ -64,8 +77,14 @@ fn main() {
     if args.contains(&String::from("--gov-reform-icons")) {
         run_government_icons(&mut mwclient)
     }
+    if args.contains(&String::from("--religions")) {
+        run_religions(&mut mwclient);
+    }
     if args.contains(&String::from("--map")) {
         run_map(&mut mwclient)
+    }
+    if args.contains(&String::from("--missions")) {
+        run_missions(&mut mwclient)
     }
 }
 
@@ -181,6 +200,22 @@ fn title_case(string: &str) -> String {
     match chars.next() {
         Some(c) => c.to_uppercase().collect::<String>() + chars.as_str(),
         None => String::new()
+    }
+}
+
+fn preprocess_modifiers() {
+    let localisations = parse_all_localisations();
+    for key in MODIFIERS.keys() {
+        let modifier = MODIFIERS.get(key);
+        if modifier.is_some() {
+            let modifier_name = localisations.get(&key.to_string());
+            if modifier_name.is_some() {
+                if ! modifier.unwrap().name.eq(modifier_name.unwrap()) {
+                    println!("{};{:?};{:?}", key, modifier.unwrap().name, modifier_name.unwrap());
+                    todo!();
+                }
+            }
+        }
     }
 }
 
@@ -345,7 +380,7 @@ fn racial_modifiers(client: &mut MediaWikiClient) {
                 page_str += format!("=== {} ===\n", title).as_str();
                 for (key, _op, value) in modifiers.fields() {
                     if key.read_str() != "picture" {
-                        if let Some(modifier) = get_modifier(&key.read_string()) {
+                        if let Some(modifier) = get_modifier(&key.read_string(), ) {
                             if let Ok(value) = value.read_scalar() {
                                 let mut colour = "bonus";
                                 let scalar = value.to_f64();
@@ -370,26 +405,60 @@ fn racial_modifiers(client: &mut MediaWikiClient) {
     client.add_edit_page(&String::from("Racial_Modifiers"), page_str);
 }
 
-fn run_government_icons(client: &mut MediaWikiClient) {
-    fn gather(path: String, files: &mut Vec<PathBuf>) -> Vec<PathBuf> {
-        let directory = fs::read_dir(path);
-        if let Ok(directory) = directory {
-            for entry in directory {
-                match entry {
-                    Ok(entry) => {
-                        if entry.path().is_dir() {
-                            gather(entry.path().to_str().unwrap().to_string(), files);
-                        } else {
-                            files.push(entry.path())
-                        }
+fn run_religions(client: &mut MediaWikiClient) {
+    let localisations = parse_all_localisations();
+    let religious_groups = parse_religious_groups(Some(&localisations));
+    println!("{:?}", religious_groups);
+
+    for religious_group in religious_groups {
+        match religious_group.id.as_str() {
+            name => {
+                let mut page_str = String::new();
+                for religion_raw in religious_group.religions.keys() {
+                    let religion = religious_group.religions.get(religion_raw).unwrap();
+                    let religion_name = localisations.get(&religion.id).unwrap();
+                    let religious_desc = localisations.get(&format!("{}_religion_desc", &religion.id).to_string()).cloned();
+                    // let religious_desc = localisations.get(&format!("{key}_desc").to_string()).cloned();
+                    page_str += format!("=== {religion} ===\n", religion=religion_name).as_str();
+                    if religious_desc.is_some() {
+                        page_str += format!("{{{{ReligiousDescription|religion={religion}|description={desc}}}}}\n", religion=&religion.id, desc=religious_desc.unwrap()).as_str();
                     }
-                    Err(_) => {}
+                    page_str += format!("All {} countries receive:\n", religion_name).as_str();
+                    add_modifiers(&mut page_str, &religion.country_modifiers);
+                    if ! &religion.province_modifiers.is_empty() {
+                        page_str += format!("All {} provinces receive:\n", religion_name).as_str();
+                        add_modifiers(&mut page_str, &religion.province_modifiers);
+                    }
+                    page_str += "\n";
+
+                    //println!("{}, {}", &title_case(religion_name), format!("#REDIRECT [[{}#{}]]", &title_case(name), &title_case(religion_name).replace(" ", "_")));
+                    // client.add_edit_page(&title_case(religion_name), format!("#REDIRECT [[{}#{}]]", &title_case(name), &title_case(religion_name).replace(" ", "_")));
+                    // thread::sleep(time::Duration::from_secs(5)); // quotas
                 }
+                //println!("!!!{}", name);
+                //println!("{}", page_str);
+                // client.add_edit_page(&title_case(name), page_str);
             }
         }
-        files.to_vec()
     }
+}
 
+fn add_modifiers(page_str: &mut String, modifiers: &BTreeMap<String, Vec<u8>>) {
+    for (modifier_key, modifier_value) in modifiers {
+        let modifier = get_modifier(&modifier_key, ).unwrap();
+        let value = Scalar::new(modifier_value.as_slice());
+        if let Ok(value) = value.to_f64() {
+            let mut colour = "bonus";
+            if value.is_sign_positive() && modifier.normal == Negative || value.is_sign_negative() && modifier.normal == Positive {
+                colour = "malus";
+            }
+            let value = modifier.to_human_readable(value as f32);
+            *page_str += format!("* {{{{Modifier |type={}|value={}|description={} }}}}\n", colour, value, modifier.name).as_str();
+        }
+    }
+}
+
+fn run_government_icons(client: &mut MediaWikiClient) {
     let mut files: Vec<PathBuf> = vec![];
     let paths = vec![
         "./anbennar/gfx/interface/government_reform_icons",
@@ -453,7 +522,7 @@ fn run_governments(client: &mut MediaWikiClient) {
                         }
                         page_str += "|| ";
                         for (modifier_key, modifier_value) in &reform.modifiers {
-                            let modifier = get_modifier(&modifier_key).unwrap();
+                            let modifier = get_modifier(&modifier_key, ).unwrap();
                             let value = Scalar::new(modifier_value.as_slice());
                             if let Ok(value) = value.to_f64() {
                                 let mut colour = "bonus";
@@ -476,8 +545,8 @@ fn run_governments(client: &mut MediaWikiClient) {
                     }
                     page_str += "|}\n";
                 }
-                // println!("{}", page_str);
-                client.add_edit_page(&title_case(name), page_str);
+                println!("{}", page_str);
+                // client.add_edit_page(&title_case(name), page_str);
             }
         }
     }
@@ -539,4 +608,78 @@ fn run_map(client: &mut MediaWikiClient) {
 
     province_list_page.push_str("|}\n");
     client.add_edit_page(&"Geographical list of provinces".to_string(), province_list_page);
+}
+
+fn run_bundled_modifiers(client: &mut MediaWikiClient) {
+    let localisations = parse_all_localisations();
+    let icons = parse_all_icons();
+    let bundled_modifiers = parse_bundled_modifiers(Some(&localisations));
+
+    let mut iconless = 0;
+    println!("{}", bundled_modifiers.len());
+    for bundled_modifier in bundled_modifiers {
+        let mut page_str = String::new();
+        match bundled_modifier.id.as_str() {
+            name => {
+                let mut title: String;
+                if bundled_modifier.name.is_some() {
+                    title = bundled_modifier.name.unwrap();
+                } else {
+                    title = bundled_modifier.id.to_case(Case::Title);
+                }
+                if bundled_modifier.picture.is_some() {
+                    let picture = bundled_modifier.picture.unwrap();
+                    let icon = format!("[[File:{}.png|40px|link=]]", picture);
+
+                    page_str += format!("=== {icon} {modifier} ===\n", icon = icon, modifier = title).as_str();
+                    if icons.contains_key(&picture) {
+                        let path = icons.get(&picture).unwrap().as_path();
+                        if path.exists() {
+                            if let Some(converted) = ImageMagick::from("magick").convert_to_png(path) {
+                                // println!("WORKING {} {:?}", picture, converted.as_path().to_str());
+                                //client.upload(format!("{}.png", picture), &converted);
+                                //let _ = fs::remove_file(converted);
+                            }
+                        } else {
+                            todo!()
+                        }
+                    } else {
+                        // println!("NOT FOUND {}", picture)
+                        // todo!()
+                        // Known for: fallen_portal, developing_advanced_infrastructure, ascended
+                    }
+                } else {
+                    page_str += format!("=== {modifier} ===\n", modifier = title).as_str();
+                }
+                add_modifiers(&mut page_str, &bundled_modifier.modifiers);
+                // page_str += format!("\n<br>==== Given by: ====").as_str();
+                /* for (caller, calling) in bundled_modifier.called_by {
+
+                } */
+            }
+        }
+        if ! page_str.contains("File") {
+            println!("{}\n{}", title_case(bundled_modifier.id.as_str()), page_str);
+            iconless += 1;
+            // client.add_edit_page(&title_case(bundled_modifier.id.as_str()), page_str);
+            // break
+        }
+        // thread::sleep(time::Duration::from_secs(5));
+        // break
+    }
+    println!("ICONLESS {}", iconless);
+}
+
+fn run_modifiers(client: &mut MediaWikiClient) {}
+
+fn run_missions(client: &mut MediaWikiClient) {
+    let localisations = parse_all_localisations();
+    let trees = parse_missions(Some(&localisations));
+    //println!("{:?}", trees);
+
+    /*
+    for tree in trees {
+        match tree.id.as_str() {}
+    }
+     */
 }

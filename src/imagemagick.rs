@@ -8,18 +8,14 @@ pub struct ImageMagick {
 
 impl ImageMagick {
     pub fn convert(&self, source_file: &Path, target_file: &Path) -> String {
+        // println!("{:?}", source_file);
+        // println!("{:?}", target_file);
+        // println!("{}", self.path.as_str());
         let process = std::process::Command::new(self.path.as_str())
             .arg(source_file)
-            .arg("-nologo")
-            .arg("-ft")
-            .arg("png")
-            .arg("-y")
-            .arg("-o")
-            .arg(target_file.parent().unwrap().to_str().unwrap())
-            .arg("-srgb")
-            .arg("-f")
-            .arg("R8G8B8A8_UNORM_SRGB")
+            .arg(target_file)
             .output();
+        // println!("{:?}", process);
         if let Ok(output) = process {
             if !output.status.success() {
                 println!("{:?}", String::from_utf8_lossy(&output.stdout));
@@ -28,38 +24,6 @@ impl ImageMagick {
             return String::from("")
         }
         return String::from("error when converting")
-        // let process = std::process::Command::new(self.path.as_str())
-        //     .arg("convert")
-        //     .arg(source_file)
-        //     .arg("-auto-orient")
-        //     .arg("-alpha")
-        //     .arg("off")
-        //     .arg(target_file)
-        //     .output();
-        // if let Ok(output) = process {
-        //     if !output.status.success() {
-        //         println!("{:?}", String::from_utf8_lossy(&output.stderr));
-        //         let process = std::process::Command::new(self.path.replace("magick.exe", "texconv.exe").as_str())
-        //             .arg(source_file)
-        //             .arg("-ft")
-        //             .arg("png")
-        //             .arg("-y")
-        //             .arg("-o")
-        //             .arg(target_file.parent().unwrap().to_str().unwrap())
-        //             .arg("-wiclossless")
-        //             .arg("-nologo")
-        //             .output();
-        //         if let Ok(output) = process {
-        //             if !output.status.success() {
-        //                 println!("{:?}", String::from_utf8_lossy(&output.stderr));
-        //                 return String::from_utf8_lossy(&output.stderr).to_string();
-        //             }
-        //             return String::from("")
-        //         }
-        //         return String::from_utf8_lossy(&output.stderr).to_string();
-        //     }
-        //     return String::from("")
-        // }
     }
 
     pub fn convert_to_png(&self, source_file: &Path) -> Option<PathBuf> {
@@ -69,6 +33,7 @@ impl ImageMagick {
             let basepath = source_file.parent().unwrap();
             let outpath = basepath.join(outname);
             let result = self.convert(source_file, outpath.as_path());
+            // println!("ERG {}", result);
             if result == "" {
                 return Some(outpath)
             }
@@ -104,7 +69,7 @@ mod tests {
 
     #[test]
     pub fn test_convert_to_png() {
-        let magick = ImageMagick::default();
+        let magick = ImageMagick::from("convert");
         let source = Path::new(r"./anbennar/gfx/flags/A03.tga");
         assert!(!magick.convert_to_png(source).is_none());
     }
